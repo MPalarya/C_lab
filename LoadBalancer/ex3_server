@@ -1,0 +1,88 @@
+#!/usr/bin/python2.7 -tt
+
+import sys
+import re
+import httplib
+from socket import *
+
+class Server:
+	END_OF_HTTP = '\r\n\r\n'
+	BUFFER_SIZE = 1024
+
+	def __init__(self, port, host='127.0.0.1'):
+		self.host = host
+		self.port = port
+		self.counter = 0
+
+
+	def connect(self):
+		try:
+			sock = socket(AF_INET, SOCK_STREAM)
+			sock.connect((self.host, self.port))
+			self.start_request_listener(sock)
+
+		except Exception as e:
+			print "Error, couldn't open socket:", e
+
+		finally:
+			sock.close()
+
+
+	def start_request_listener(self, sock):
+		request = ''
+		while True:
+			request += sock.recv(self.BUFFER_SIZE)
+			if self.END_OF_HTTP in request:
+				request_list = request.split(self.END_OF_HTTP)
+				http_code_status = self.handle_request(request_list[0])
+				request = ''.join(request_list[1:])
+				self.send_response(sock, http_code_status)
+
+
+	def handle_request(self, request):
+		try:
+			uri = re.match(r'GET (.*) HTTP/\d.\d', request, re.IGNORECASE).group(1)
+			if uri == '/counter':
+				self.counter += 1
+				return httplib.OK
+
+		except Exception as e:
+			print "Error in HTTP request:", e
+
+		return httplib.NOT_FOUND
+
+
+	def send_response(self, sock, response_code):
+		response = self.build_response(response_code)
+
+		total_sent = 0
+		while total_sent < len(response):
+			sent = sock.send(response[total_sent:])
+			total_sent += sent
+			if sent == 0:
+				print "Error sending response"
+
+
+	def build_response(self, response_code):
+		if response_code == httplib.OK:
+			return '\r\n'.join([
+				'HTTP/1.0 200 OK',
+				'Content-Type: text/html',
+				'Content-Length: {0}\r\n',
+				'{1}\r\n\r\n']).format(len(str(self.counter)), self.counter)
+
+		return '\r\n'.join([
+				'HTTP/1.1 404 Not Found',
+				'Content-type: text/html',
+				'Content-length: 113\r\n',
+				'<html><head><title>Not Found</title></head><body>Sorry, the object you requested was not found.</body></html>\r\n\r\n'])
+
+
+if __name__ == "__main__":
+	if len(sys.argv) < 2:
+		print('Usage: %s <server port>' % sys.argv[0])
+		sys.exit(1)
+
+	assert sys.argv[1].isdigit()
+	sever = Server(port=int(sys.argv[1]))
+	sever.connect()
